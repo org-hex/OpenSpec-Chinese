@@ -27,7 +27,8 @@
     }
   },
   "bin": {
-    "openspec": "./bin/openspec.js"
+    "openspec": "./bin/openspec.js",
+    "openspec-chinese": "./bin/openspec-chinese.js"
   },
   "files": [
     "dist",

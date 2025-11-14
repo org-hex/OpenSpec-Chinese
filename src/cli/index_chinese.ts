@@ -1,0 +1,254 @@
+import { Command } from 'commander';
+import { createRequire } from 'module';
+import ora from 'ora';
+import path from 'path';
+import { promises as fs } from 'fs';
+import { InitCommandChinese } from '../core/init_chinese.js';
+import { AI_TOOLS } from '../core/config.js';
+import { ListCommand } from '../core/list.js';
+import { ArchiveCommand } from '../core/archive.js';
+import { ViewCommand } from '../core/view.js';
+import { registerSpecCommand } from '../commands/spec.js';
+import { ChangeCommand } from '../commands/change.js';
+import { ValidateCommand } from '../commands/validate.js';
+import { ShowCommand } from '../commands/show.js';
+// 中文专用导入
+import { UpdateCommandChinese } from '../core/update_chinese.js';
+
+const program = new Command();
+const require = createRequire(import.meta.url);
+const { version } = require('../../package.json');
+
+program
+  .name('openspec-chinese')
+  .description('OpenSpec中文版 - AI驱动的系统化开发规范管理')
+  .version(version);
+
+// Global options
+program.option('--no-color', '禁用彩色输出');
+
+// Apply global flags before any command runs
+program.hook('preAction', (thisCommand) => {
+  const opts = thisCommand.opts();
+  if (opts.noColor) {
+    process.env.NO_COLOR = '1';
+  }
+});
+
+const availableToolIds = AI_TOOLS.filter((tool) => tool.available).map((tool) => tool.value);
+const toolsOptionDescription = `非交互式配置AI工具。使用 "all"、"none" 或逗号分隔的列表: ${availableToolIds.join(', ')}`;
+
+program
+  .command('init [path]')
+  .description('在项目中初始化OpenSpec中文版')
+  .option('--tools <tools>', toolsOptionDescription)
+  .action(async (targetPath = '.', options?: { tools?: string }) => {
+    try {
+      // Validate that the path is a valid directory
+      const resolvedPath = path.resolve(targetPath);
+
+      try {
+        const stats = await fs.stat(resolvedPath);
+        if (!stats.isDirectory()) {
+          throw new Error(`路径 "${targetPath}" 不是目录`);
+        }
+      } catch (error: any) {
+        if (error.code === 'ENOENT') {
+          // Directory doesn't exist, but we can create it
+          console.log(`目录 "${targetPath}" 不存在，将会自动创建。`);
+        } else if (error.message && error.message.includes('not a directory')) {
+          throw error;
+        } else {
+          throw new Error(`无法访问路径 "${targetPath}": ${error.message}`);
+        }
+      }
+
+      const initCommand = new InitCommandChinese({
+        tools: options?.tools,
+      });
+      await initCommand.execute(targetPath);
+    } catch (error) {
+      console.log(); // Empty line for spacing
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('update [path]')
+  .description('更新OpenSpec中文版指令文件')
+  .action(async (targetPath = '.') => {
+    try {
+      const resolvedPath = path.resolve(targetPath);
+      const updateCommand = new UpdateCommandChinese();
+      await updateCommand.execute(resolvedPath);
+    } catch (error) {
+      console.log(); // Empty line for spacing
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('list')
+  .description('列出项目项（默认显示变更）。使用 --specs 列出规范。')
+  .option('--specs', '列出规范而不是变更')
+  .option('--changes', '明确列出变更（默认）')
+  .action(async (options?: { specs?: boolean; changes?: boolean }) => {
+    try {
+      const listCommand = new ListCommand();
+      const mode: 'changes' | 'specs' = options?.specs ? 'specs' : 'changes';
+      await listCommand.execute('.', mode);
+    } catch (error) {
+      console.log(); // Empty line for spacing
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('view')
+  .description('显示规范和变更的交互式仪表板')
+  .action(async () => {
+    try {
+      const viewCommand = new ViewCommand();
+      await viewCommand.execute('.');
+    } catch (error) {
+      console.log(); // Empty line for spacing
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+// Change command with subcommands
+const changeCmd = program
+  .command('change')
+  .description('管理OpenSpec变更提案');
+
+// Deprecation notice for noun-based commands
+changeCmd.hook('preAction', () => {
+  console.error('警告: "openspec-chinese change ..." 命令已弃用。建议使用动词优先命令（如 "openspec-chinese list"、"openspec-chinese validate --changes"）。');
+});
+
+changeCmd
+  .command('show [change-name]')
+  .description('以JSON或Markdown格式显示变更提案')
+  .option('--json', '输出为JSON格式')
+  .option('--deltas-only', '仅显示增量（仅JSON）')
+  .option('--requirements-only', '--deltas-only 的别名（已弃用）')
+  .option('--no-interactive', '禁用交互式提示')
+  .action(async (changeName?: string, options?: { json?: boolean; requirementsOnly?: boolean; deltasOnly?: boolean; noInteractive?: boolean }) => {
+    try {
+      const changeCommand = new ChangeCommand();
+      await changeCommand.show(changeName, options);
+    } catch (error) {
+      console.error(`错误: ${(error as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+
+changeCmd
+  .command('list')
+  .description('列出所有活跃的变更（已弃用：使用 "openspec-chinese list" 代替）')
+  .option('--json', '输出为JSON格式')
+  .option('--long', '显示ID和标题及计数')
+  .action(async (options?: { json?: boolean; long?: boolean }) => {
+    try {
+      console.error('警告: "openspec-chinese change list" 已弃用。使用 "openspec-chinese list"。');
+      const changeCommand = new ChangeCommand();
+      await changeCommand.list(options);
+    } catch (error) {
+      console.error(`错误: ${(error as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+
+changeCmd
+  .command('validate [change-name]')
+  .description('验证变更提案')
+  .option('--strict', '启用严格验证模式')
+  .option('--json', '输出验证报告为JSON格式')
+  .option('--no-interactive', '禁用交互式提示')
+  .action(async (changeName?: string, options?: { strict?: boolean; json?: boolean; noInteractive?: boolean }) => {
+    try {
+      const changeCommand = new ChangeCommand();
+      await changeCommand.validate(changeName, options);
+      if (typeof process.exitCode === 'number' && process.exitCode !== 0) {
+        process.exit(process.exitCode);
+      }
+    } catch (error) {
+      console.error(`错误: ${(error as Error).message}`);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command('archive [change-name]')
+  .description('归档已完成的变更并更新主规范')
+  .option('-y, --yes', '跳过确认提示')
+  .option('--skip-specs', '跳过规范更新操作（适用于基础设施、工具或仅文档变更）')
+  .option('--no-validate', '跳过验证（不推荐，需要确认）')
+  .action(async (changeName?: string, options?: { yes?: boolean; skipSpecs?: boolean; noValidate?: boolean; validate?: boolean }) => {
+    try {
+      const archiveCommand = new ArchiveCommand();
+      await archiveCommand.execute(changeName, options);
+    } catch (error) {
+      console.log(); // Empty line for spacing
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+registerSpecCommand(program);
+
+// Top-level validate command
+program
+  .command('validate [item-name]')
+  .description('验证变更和规范')
+  .option('--all', '验证所有变更和规范')
+  .option('--changes', '验证所有变更')
+  .option('--specs', '验证所有规范')
+  .option('--type <type>', '当类型模糊时指定项目类型：change|spec')
+  .option('--strict', '启用严格验证模式')
+  .option('--json', '输出验证结果为JSON格式')
+  .option('--concurrency <n>', '最大并发验证数（默认为环境变量 OPENSPEC_CONCURRENCY 或 6）')
+  .option('--no-interactive', '禁用交互式提示')
+  .action(async (itemName?: string, options?: { all?: boolean; changes?: boolean; specs?: boolean; type?: string; strict?: boolean; json?: boolean; noInteractive?: boolean; concurrency?: string }) => {
+    try {
+      const validateCommand = new ValidateCommand();
+      await validateCommand.execute(itemName, options);
+    } catch (error) {
+      console.log();
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+// Top-level show command
+program
+  .command('show [item-name]')
+  .description('显示变更或规范')
+  .option('--json', '输出为JSON格式')
+  .option('--type <type>', '当类型模糊时指定项目类型：change|spec')
+  .option('--no-interactive', '禁用交互式提示')
+  // change-only flags
+  .option('--deltas-only', '仅显示增量（仅JSON，变更）')
+  .option('--requirements-only', '--deltas-only 的别名（已弃用，变更）')
+  // spec-only flags
+  .option('--requirements', '仅JSON：仅显示需求（排除场景）')
+  .option('--no-scenarios', '仅JSON：排除场景内容')
+  .option('-r, --requirement <id>', '仅JSON：按ID显示特定需求（从1开始）')
+  // allow unknown options to pass-through to underlying command implementation
+  .allowUnknownOption(true)
+  .action(async (itemName?: string, options?: { json?: boolean; type?: string; noInteractive?: boolean; [k: string]: any }) => {
+    try {
+      const showCommand = new ShowCommand();
+      await showCommand.execute(itemName, options ?? {});
+    } catch (error) {
+      console.log();
+      ora().fail(`错误: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program.parse();
