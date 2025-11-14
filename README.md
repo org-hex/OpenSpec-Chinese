@@ -24,7 +24,7 @@
 
 ## 📖 项目简介
 
-**OpenSpec 中文版** 是基于 [org-hex/openspec-chinese](https://github.com/org-hex/openspec-chinese) 的中文本地化版本。
+**OpenSpec 中文版** 是基于 [Fission-AI/openspec](https://github.com/Fission-AI/OpenSpec) 的中文本地化版本。
 
 ### 🎯 主要特性
 
