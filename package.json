@@ -1,6 +1,6 @@
 {
   "name": "@org-hex/openspec-chinese",
-  "version": "0.15.0.1",
+  "version": "0.15.0+1",
   "description": "AI-native system for spec-driven development",
   "keywords": [
     "openspec",
